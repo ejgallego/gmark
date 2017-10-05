@@ -91,7 +91,7 @@ void qtranslate(const string & inputfilename, const string & output_directory)
 
     for (pugi::xml_node query : doc.child("queries").children("query"))
     {
-        ofstream sqlout, sparqlout, cypherout, logicbloxout;
+        ofstream sqlout, sparqlout, cypherout, logicbloxout, vupout;
         sqlout.open(output_directory + "/query-" + to_string(qcount) + ".sql");
         qtranslate_sql(query, sqlout);
         sqlout.close();
@@ -107,6 +107,10 @@ void qtranslate(const string & inputfilename, const string & output_directory)
         logicbloxout.open(output_directory + "/query-" + to_string(qcount) + ".lb");
         qtranslate_logicblox(query, logicbloxout);
         logicbloxout.close();
+
+        vupout.open(output_directory + "/query-" + to_string(qcount) + ".q");
+        qtranslate_vup(query, vupout);
+        vupout.close();
 
         qcount++;
     }
@@ -898,7 +902,6 @@ void qtranslate_logicblox(pugi::xml_node query, ofstream & file)
   file << endl << "END" << endl;
 }
 
-
 void qtranslate_logicblox_body(pugi::xml_node body, int bodyIndex, ofstream & file, string head)
 {
   string mainbody = "";
@@ -943,7 +946,7 @@ void qtranslate_logicblox_body(pugi::xml_node body, int bodyIndex, ofstream & fi
           cerr << "Bad input file: malformed structure";
           exit(EXIT_FAILURE);
       }
-        
+
       predicate = "gmarkSubquery" + to_string(bodyIndex) + to_string(conjunctIndex);
 
       do
@@ -1011,4 +1014,117 @@ void qtranslate_logicblox_body(pugi::xml_node body, int bodyIndex, ofstream & fi
   }
 
   file << endl << head << mainbody << ".";
+}
+
+////////////////////////////////////////////////////////////////////////
+// Translate a query into VUP's C2RPQ format                          //
+////////////////////////////////////////////////////////////////////////
+void qtranslate_vup_regex(pugi::xml_node query, ofstream & file) {
+
+    string name = query.name();
+
+    if(name == "symbol")
+    {
+        file << "p" << query.text().get();
+        if (query.attribute("inverse").as_bool())
+        {
+            file << "-";
+        }
+    }
+    else if(name == "star")
+    {
+        file << "(";
+        qtranslate_vup_regex(query.first_child(), file);
+        file << ")*";
+    }
+    else if (name == "concat")
+    {
+        bool first = true;
+        file << "(";
+        for (pugi::xml_node child : query.children())
+        {
+            if (!first)
+                file << ";";
+            qtranslate_vup_regex(child, file);
+            first = false;
+        }
+        file << ")";
+    }
+    else if (name == "disj")
+    {
+        bool first = true;
+        file << "(";
+        for (pugi::xml_node child : query.children())
+        {
+            if (!first)
+                file << "|";
+            qtranslate_vup_regex(child, file);
+            first = false;
+        }
+        file << ")";
+    }
+
+}
+
+string vup_toupper (string str) {
+
+  std::locale loc;
+  string res = str;
+
+  for (std::string::size_type i=0; i<str.length(); ++i)
+     res[i] = std::toupper(str[i],loc);
+
+  return res;
+}
+
+string node_to_vup(const string & name)
+{
+    if(name.size() > 0 && name[0] == '?')
+    {
+        return vup_toupper(name.substr(1));
+    }
+    else
+    {
+        return '"' + name + '"';
+    }
+}
+
+// translate a query into VUP
+void qtranslate_vup(pugi::xml_node query, ofstream & file)
+{
+
+    bool first = true;
+    string head = "query(";
+    string oneVar;
+
+    // collect projection list
+    for (pugi::xml_node var_node : query.child("head").children("var")) {
+        if (first) {
+            oneVar = var_node.text().get();
+            head +=  vup_toupper(oneVar.substr(1));
+            first = false;
+        } else {
+            oneVar = var_node.text().get();
+            head +=  ", " + vup_toupper(oneVar.substr(1));
+        }
+    }
+
+    head +=  ") :- ";
+    file << head;
+
+    first = true;
+    for (pugi::xml_node body_node : query.child("bodies").children("body"))
+    {
+        for (pugi::xml_node conjunct_node : body_node.children("conjunct"))
+        {
+            if (first) { first = false; } else { file << ", "; }
+
+            qtranslate_vup_regex(conjunct_node.first_child(), file);
+            file << "("  << node_to_vup(conjunct_node.attribute("src").value());
+            file << ", " << node_to_vup(conjunct_node.attribute("trg").value()) << ")";
+        }
+    }
+
+    file << "." << endl;
+
 }

@@ -43,5 +43,6 @@ void qtranslate_cypher_doc(pugi::xml_document &);
 void qtranslate_cypher_doc_reconstructBody(pugi::xml_node &, pugi::xml_node &, vector < pugi::xml_node >);
 void qtranslate_logicblox(pugi::xml_node, ofstream &);
 void qtranslate_logicblox_body(pugi::xml_node, int, ofstream &, string);
+void qtranslate_vup(pugi::xml_node, ofstream &);
 
 #endif
